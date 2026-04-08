@@ -124,9 +124,8 @@ app.post('/submit-lead', async (req, res) => {
     // Submit lead to DYL CRM
     const dylParams = new URLSearchParams();
     dylParams.append('id', '24191257238');
-    dylParams.append('first_name', fname);
-    dylParams.append('last_name', lname);
-    dylParams.append('phone', phone);
+    dylParams.append('name', `${fname} ${lname}`);
+    dylParams.append('phone_number', phone);
     dylParams.append('email', email);
     dylParams.append('notes', `Coverage For: ${forWho} | Age: ${age} | Coverage: ${coverage} | Health: ${health} | Smoker: ${smoker}`);
 
