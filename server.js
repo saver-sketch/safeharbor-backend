@@ -17,7 +17,13 @@ const VERIFY_SID = process.env.TWILIO_VERIFY_SID;
 // Send verification code via Twilio Verify
 app.post('/send-code', async (req, res) => {
   try {
-    const { phone } = req.body;
+    let { phone } = req.body;
+    // Ensure phone has +1 country code
+    phone = phone.replace(/\D/g, ''); // strip all non-digits
+    if (phone.length === 10) phone = '+1' + phone;
+    else if (phone.length === 11) phone = '+' + phone;
+    else phone = '+' + phone;
+
     await client.verify.v2.services(VERIFY_SID)
       .verifications.create({ to: phone, channel: 'sms' });
     res.json({ success: true });
@@ -30,7 +36,13 @@ app.post('/send-code', async (req, res) => {
 // Verify the code
 app.post('/verify-code', async (req, res) => {
   try {
-    const { phone, code } = req.body;
+    let { phone, code } = req.body;
+    // Ensure phone has +1 country code
+    phone = phone.replace(/\D/g, '');
+    if (phone.length === 10) phone = '+1' + phone;
+    else if (phone.length === 11) phone = '+' + phone;
+    else phone = '+' + phone;
+
     const check = await client.verify.v2.services(VERIFY_SID)
       .verificationChecks.create({ to: phone, code });
     if (check.status === 'approved') {
