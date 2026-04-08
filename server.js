@@ -58,11 +58,12 @@ app.post('/verify-code', async (req, res) => {
   }
 });
 
-// Send lead email via SendGrid
+// Send lead email via SendGrid + submit to DYL CRM
 app.post('/submit-lead', async (req, res) => {
   try {
     const { fname, lname, phone, email, coverage, age, health, smoker, forWho } = req.body;
 
+    // Send email via SendGrid
     const msg = {
       to: process.env.EMAIL_TO,
       from: 'leads@safeharborquote.com',
@@ -119,6 +120,22 @@ app.post('/submit-lead', async (req, res) => {
     };
 
     await sgMail.send(msg);
+
+    // Submit lead to DYL CRM
+    const dylParams = new URLSearchParams();
+    dylParams.append('id', '24191257238');
+    dylParams.append('first_name', fname);
+    dylParams.append('last_name', lname);
+    dylParams.append('phone', phone);
+    dylParams.append('email', email);
+    dylParams.append('notes', `Coverage For: ${forWho} | Age: ${age} | Coverage: ${coverage} | Health: ${health} | Smoker: ${smoker}`);
+
+    await fetch('https://my.dyl.com/form/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: dylParams.toString()
+    });
+
     res.json({ success: true });
   } catch (err) {
     console.error(err);
