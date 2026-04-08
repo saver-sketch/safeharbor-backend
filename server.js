@@ -122,18 +122,23 @@ app.post('/submit-lead', async (req, res) => {
     await sgMail.send(msg);
 
     // Submit lead to DYL CRM
+    const axios = require('axios');
     const dylParams = new URLSearchParams();
     dylParams.append('id', '24191257238');
     dylParams.append('name', `${fname} ${lname}`);
+    dylParams.append('phone', phone);
     dylParams.append('phone_number', phone);
     dylParams.append('email', email);
     dylParams.append('notes', `Coverage For: ${forWho} | Age: ${age} | Coverage: ${coverage} | Health: ${health} | Smoker: ${smoker}`);
 
-    await fetch('https://my.dyl.com/form/contact', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: dylParams.toString()
-    });
+    try {
+      const dylRes = await axios.post('https://my.dyl.com/form/contact', dylParams.toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+      console.log('DYL response:', dylRes.status, JSON.stringify(dylRes.data));
+    } catch (dylErr) {
+      console.error('DYL error:', dylErr.message);
+    }
 
     res.json({ success: true });
   } catch (err) {
