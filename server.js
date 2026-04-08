@@ -12,26 +12,14 @@ const client = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-// Temporary code storage
-const codeSessions = {};
+const VERIFY_SID = process.env.TWILIO_VERIFY_SID;
 
-// Send verification code
+// Send verification code via Twilio Verify
 app.post('/send-code', async (req, res) => {
   try {
     const { phone } = req.body;
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
-
-    codeSessions[phone] = {
-      code,
-      expires: Date.now() + 5 * 60 * 1000 // expires in 5 minutes
-    };
-
-    await client.messages.create({
-      body: `Your SafeHarbor Insurance verification code is: ${code}`,
-      from: process.env.TWILIO_PHONE,
-      to: phone
-    });
-
+    await client.verify.v2.services(VERIFY_SID)
+      .verifications.create({ to: phone, channel: 'sms' });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -40,23 +28,20 @@ app.post('/send-code', async (req, res) => {
 });
 
 // Verify the code
-app.post('/verify-code', (req, res) => {
-  const { phone, code } = req.body;
-  const session = codeSessions[phone];
-
-  if (!session) {
-    return res.json({ success: false, error: 'No code found. Please request a new one.' });
+app.post('/verify-code', async (req, res) => {
+  try {
+    const { phone, code } = req.body;
+    const check = await client.verify.v2.services(VERIFY_SID)
+      .verificationChecks.create({ to: phone, code });
+    if (check.status === 'approved') {
+      res.json({ success: true });
+    } else {
+      res.json({ success: false, error: 'Incorrect code. Please try again.' });
+    }
+  } catch (err) {
+    console.error(err);
+    res.json({ success: false, error: 'Verification failed. Please try again.' });
   }
-  if (Date.now() > session.expires) {
-    delete codeSessions[phone];
-    return res.json({ success: false, error: 'Code expired. Please request a new one.' });
-  }
-  if (session.code !== code) {
-    return res.json({ success: false, error: 'Incorrect code. Please try again.' });
-  }
-
-  delete codeSessions[phone];
-  res.json({ success: true });
 });
 
 const PORT = process.env.PORT || 3000;
