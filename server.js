@@ -126,9 +126,6 @@ app.post('/submit-lead', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`SafeHarbor verification server running on port ${PORT}`));
-
 
 // Send verification code via Twilio Verify
 app.post('/send-code', async (req, res) => {
