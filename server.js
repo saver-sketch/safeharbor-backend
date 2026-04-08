@@ -124,15 +124,16 @@ app.post('/submit-lead', async (req, res) => {
     // Submit lead to DYL CRM
     const axios = require('axios');
     const dylParams = new URLSearchParams();
-    dylParams.append('id', '24191257238');
-    dylParams.append('name', `${fname} ${lname}`);
-    dylParams.append('phone', phone);
-    dylParams.append('phone_number', phone);
-    dylParams.append('email', email);
-    dylParams.append('notes', `Coverage For: ${forWho} | Age: ${age} | Coverage: ${coverage} | Health: ${health} | Smoker: ${smoker}`);
+    dylParams.append('d1-name', `${fname} ${lname}`);
+    dylParams.append('d1-phone', phone);
+    dylParams.append('d1-email', email);
+    dylParams.append('d1-note', `Coverage For: ${forWho} | Age: ${age} | Coverage: ${coverage} | Health: ${health} | Smoker: ${smoker}`);
+    dylParams.append('a0-1_1', '24191257238');
+    dylParams.append('cmd-1_1', 'user_contact');
+    dylParams.append('do-1_1', 'Submit');
 
     try {
-      const dylRes = await axios.post('https://my.dyl.com/form/contact', dylParams.toString(), {
+      const dylRes = await axios.post('https://my.dyl.com/form/contact?id=24191257238', dylParams.toString(), {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       });
       console.log('DYL response:', dylRes.status, JSON.stringify(dylRes.data));
