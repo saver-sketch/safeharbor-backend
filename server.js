@@ -153,11 +153,11 @@ app.post('/submit-lead', async (req, res) => {
     dylParams.append('d1-phone', phone);
     dylParams.append('d1-email', email);
     
-    // ADD ADDRESS FIELDS TO DYL
-    dylParams.append('add-address', address);
-    dylParams.append('add-field-city', city);
-    dylParams.append('add-field-state', state);
-    dylParams.append('add-field-zip', zip);
+    // Address fields with d1- prefix
+    dylParams.append('d1-address', address);
+    dylParams.append('d1-city', city);
+    dylParams.append('d1-state', state);
+    dylParams.append('d1-zip', zip);
     
     dylParams.append('d1-note', `DOB: ${dob || 'N/A'} | Age: ${age} | Coverage: ${coverage} | Health: ${health} | Smoker: ${smoker}`);
     dylParams.append('a0-1_1', '24191257238');
