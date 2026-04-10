@@ -316,16 +316,19 @@ app.post('/heygen/generate', async (req, res) => {
     const axios = require('axios');
     const { scripts } = req.body;
 
-    // Get avatars and voices
+    // Get avatars
     const avatarRes = await axios.get('https://api.heygen.com/v2/avatars', {
       headers: { 'X-Api-Key': HEYGEN_API_KEY }
     });
     const avatars = avatarRes.data.data.avatars || [];
 
+    // Get voices
     const voiceRes = await axios.get('https://api.heygen.com/v2/voices', {
       headers: { 'X-Api-Key': HEYGEN_API_KEY }
     });
     const voices = voiceRes.data.data.voices || [];
+
+    console.log(`Found ${avatars.length} avatars and ${voices.length} voices`);
 
     const jobs = [];
 
@@ -334,9 +337,10 @@ app.post('/heygen/generate', async (req, res) => {
       const script = SCRIPTS[scriptNum];
       if (!script) continue;
 
-      // Pick a different avatar and voice for each script
       const avatar = avatars[i % avatars.length];
       const voice = voices[i % voices.length];
+
+      console.log(`Generating script ${scriptNum} with avatar: ${avatar.avatar_id}, voice: ${voice.voice_id}`);
 
       const payload = {
         video_inputs: [{
@@ -348,35 +352,47 @@ app.post('/heygen/generate', async (req, res) => {
           voice: {
             type: 'text',
             input_text: script.text,
-            voice_id: voice.voice_id
+            voice_id: voice.voice_id,
+            speed: 1.0
           },
           background: {
             type: 'color',
             value: '#ffffff'
           }
         }],
-        dimension: { width: 1080, height: 1920 },
-        aspect_ratio: '9:16'
+        dimension: { width: 1080, height: 1920 }
       };
 
-      const videoRes = await axios.post('https://api.heygen.com/v2/video/generate', payload, {
-        headers: { 'X-Api-Key': HEYGEN_API_KEY, 'Content-Type': 'application/json' }
-      });
+      try {
+        const videoRes = await axios.post('https://api.heygen.com/v2/video/generate', payload, {
+          headers: { 'X-Api-Key': HEYGEN_API_KEY, 'Content-Type': 'application/json' }
+        });
+        console.log(`Script ${scriptNum} response:`, JSON.stringify(videoRes.data));
 
-      jobs.push({
-        script_num: scriptNum,
-        title: script.title,
-        video_id: videoRes.data.data.video_id,
-        avatar_name: avatar.avatar_name,
-        voice_name: voice.name,
-        status: 'processing'
-      });
+        jobs.push({
+          script_num: scriptNum,
+          title: script.title,
+          video_id: videoRes.data.data.video_id,
+          avatar_name: avatar.avatar_name,
+          voice_name: voice.name || voice.language,
+          status: 'processing'
+        });
+      } catch (videoErr) {
+        console.error(`Script ${scriptNum} error:`, videoErr.response?.data || videoErr.message);
+        jobs.push({
+          script_num: scriptNum,
+          title: script.title,
+          video_id: null,
+          error: videoErr.response?.data?.message || videoErr.message,
+          status: 'failed'
+        });
+      }
     }
 
     res.json({ success: true, jobs });
   } catch (err) {
-    console.error('HeyGen generate error:', err.message);
-    res.json({ success: false, error: err.message });
+    console.error('HeyGen generate error:', err.response?.data || err.message);
+    res.json({ success: false, error: err.response?.data?.message || err.message });
   }
 });
 
