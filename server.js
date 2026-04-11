@@ -405,14 +405,16 @@ app.get('/heygen/status/:videoId', async (req, res) => {
       headers: { 'X-Api-Key': HEYGEN_API_KEY }
     });
     const data = response.data.data;
+    console.log(`Status check for ${videoId}:`, JSON.stringify(data));
     res.json({
       status: data.status,
       progress: data.progress || 0,
-      video_url: data.video_url || null
+      video_url: data.video_url || null,
+      error: data.error || null
     });
   } catch (err) {
-    console.error('HeyGen status error:', err.message);
-    res.json({ success: false, error: err.message });
+    console.error('HeyGen status error:', err.response?.data || err.message);
+    res.json({ status: 'processing', progress: 10, error: err.message });
   }
 });
 // ────────────────────────────────────────────────────────────
