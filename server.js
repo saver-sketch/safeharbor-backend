@@ -375,7 +375,7 @@ function getEmailTemplate4(fname, lname) {
   `;
 }
 
-// ── SUBMIT LEAD WITH EMAIL SEQUENCE ───────────────────────────
+// ── SUBMIT LEAD (ORIGINAL WORKING CODE + EMAIL SEQUENCE) ─────
 app.post('/submit-lead', async (req, res) => {
   try {
     const {
@@ -457,10 +457,10 @@ app.post('/submit-lead', async (req, res) => {
 
     }, 3 * 24 * 60 * 60 * 1000); // 3 days
 
-    // ── SEND TO YOUR INBOX (Internal notification) ────────────────────────
-    const internalEmail = {
+    // ── SENDGRID EMAIL (ORIGINAL INTERNAL NOTIFICATION) ──────────────────
+    const msg = {
       to: process.env.EMAIL_TO,
-      from: 'darlene@maxsavequote.com',
+      from: 'leads@safeharborquote.com',
       subject: `🔔 New Lead: ${fname} ${lname} — MaxSave Insurance`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f6f7fa;padding:20px;border-radius:12px;">
@@ -509,7 +509,8 @@ app.post('/submit-lead', async (req, res) => {
               </tr>
             </table>
             <div style="margin-top:20px;padding:14px;background:#f0fff4;border-left:4px solid #7cb342;border-radius:6px;">
-              <p style="margin:0;color:#7cb342;font-weight:700;">📧 Automated email follow-up sequence activated (4 emails over 3 days)</p>
+              <p style="margin:0;color:#7cb342;font-weight:700;">⚡ Phone number verified via SMS OTP</p>
+              <p style="margin:8px 0 0;color:#7cb342;font-weight:700;">📧 Automated email follow-up sequence activated (4 emails over 3 days)</p>
             </div>
           </div>
           <p style="text-align:center;color:#8a93aa;font-size:12px;margin-top:16px;">MaxSave Insurance · maxsavequote.com</p>
@@ -517,10 +518,10 @@ app.post('/submit-lead', async (req, res) => {
       `
     };
 
-    await sgMail.send(internalEmail);
-    console.log('Internal notification email sent');
+    await sgMail.send(msg);
+    console.log('SendGrid email sent successfully');
 
-    // ── DYL CRM SUBMISSION ──────────────────────────────────
+    // ── DYL CRM SUBMISSION (ORIGINAL WORKING CODE) ──────────────────────────────
     const dylParams = new URLSearchParams();
     dylParams.append('d1-name', `${fname} ${lname}`);
     dylParams.append('d1-phone', phone);
@@ -553,4 +554,4 @@ app.post('/submit-lead', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`MaxSave server with email follow-up sequence running on port ${PORT}`));
+app.listen(PORT, () => console.log(`MaxSave verification server running on port ${PORT}`));
