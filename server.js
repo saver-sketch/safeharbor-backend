@@ -3,6 +3,7 @@ const twilio = require('twilio');
 const cors = require('cors');
 const sgMail = require('@sendgrid/mail');
 const axios = require('axios');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -17,6 +18,41 @@ const client = twilio(
 const VERIFY_SID = process.env.TWILIO_VERIFY_SID;
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+// ── META CAPI HELPER ──────────────────────────────────────────
+function hashPII(value) {
+  if (!value) return undefined;
+  return crypto.createHash('sha256').update(value.trim().toLowerCase()).digest('hex');
+}
+
+async function sendMetaCAPIEvent({ eventName, eventId, sourceUrl, userData, customData = {} }) {
+  const pixelId = '1482445936805063';
+  const accessToken = process.env.META_CAPI_TOKEN;
+  if (!accessToken) { console.warn('META_CAPI_TOKEN not set, skipping CAPI'); return; }
+
+  const payload = {
+    data: [{
+      event_name: eventName,
+      event_time: Math.floor(Date.now() / 1000),
+      event_id: eventId,
+      event_source_url: sourceUrl || 'https://maxsaveins.com/',
+      action_source: 'website',
+      user_data: userData,
+      ...(Object.keys(customData).length ? { custom_data: customData } : {})
+    }]
+  };
+
+  try {
+    const res = await axios.post(
+      `https://graph.facebook.com/v19.0/${pixelId}/events?access_token=${accessToken}`,
+      payload,
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+    console.log('Meta CAPI response:', res.status, JSON.stringify(res.data));
+  } catch (err) {
+    console.error('Meta CAPI error:', err.response?.data || err.message);
+  }
+}
 
 // ── SEND OTP CODE ─────────────────────────────────────────────
 app.post('/send-code', async (req, res) => {
@@ -375,16 +411,50 @@ function getEmailTemplate4(fname, lname) {
   `;
 }
 
-// ── SUBMIT LEAD (ORIGINAL WORKING CODE + EMAIL SEQUENCE) ─────
+// ── SUBMIT LEAD ───────────────────────────────────────────────
 app.post('/submit-lead', async (req, res) => {
   try {
     const {
       fname, lname, phone, email,
       address, city, state, zip,
-      dob, age, coverage, health, smoker
+      dob, age, coverage, health, smoker,
+      eventId, fbp, fbc, clientIp, clientUserAgent
     } = req.body;
 
-    // ── SEND IMMEDIATE EMAIL (Email #1) ──────────────────────────────────
+    // ── META CAPI — Lead event ────────────────────────────────
+    const cleanPhone = (phone || '').replace(/\D/g, '');
+    const capiEventId = eventId || ('lead_' + Date.now() + '_' + Math.random().toString(36).slice(2));
+
+    // Parse DOB into YYYYMMDD for Meta
+    let dobHashed;
+    if (dob) {
+      const dobClean = dob.replace(/-/g, ''); // expects YYYY-MM-DD → YYYYMMDD
+      dobHashed = hashPII(dobClean);
+    }
+
+    await sendMetaCAPIEvent({
+      eventName: 'Lead',
+      eventId: capiEventId,
+      sourceUrl: 'https://maxsaveins.com/',
+      userData: {
+        em: hashPII(email),
+        ph: hashPII(cleanPhone.length === 10 ? '1' + cleanPhone : cleanPhone),
+        fn: hashPII(fname),
+        ln: hashPII(lname),
+        ct: hashPII(city),
+        st: hashPII(state),
+        zp: hashPII(zip),
+        country: hashPII('us'),
+        db: dobHashed,
+        external_id: hashPII(email), // use email as stable external_id server-side
+        ...(fbp ? { fbp } : {}),
+        ...(fbc ? { fbc } : {}),
+        ...(clientIp ? { client_ip_address: clientIp } : { client_ip_address: req.headers['x-forwarded-for'] || req.socket.remoteAddress }),
+        client_user_agent: clientUserAgent || req.headers['user-agent'] || ''
+      }
+    });
+
+    // ── SEND IMMEDIATE EMAIL (Email #1) ──────────────────────
     const immediateEmail = {
       to: email,
       from: 'darlene@maxsavequote.com',
@@ -400,64 +470,31 @@ app.post('/submit-lead', async (req, res) => {
       console.error('Email #1 error:', emailErr.message);
     }
 
-    // ── SCHEDULE EMAIL #2 (2 hours later) ────────────────────────────────
+    // ── SCHEDULE EMAIL #2 (2 hours later) ────────────────────
     setTimeout(async () => {
-      const email2 = {
-        to: email,
-        from: 'darlene@maxsavequote.com',
-        replyTo: 'darlene@maxsavequote.com',
-        subject: `We tried to reach you about your final expense quote`,
-        html: getEmailTemplate2(fname, lname)
-      };
-
       try {
-        await sgMail.send(email2);
+        await sgMail.send({ to: email, from: 'darlene@maxsavequote.com', replyTo: 'darlene@maxsavequote.com', subject: `We tried to reach you about your final expense quote`, html: getEmailTemplate2(fname, lname) });
         console.log('Email #2 (2hr) sent successfully to:', email);
-      } catch (err) {
-        console.error('Email #2 error:', err.message);
-      }
+      } catch (err) { console.error('Email #2 error:', err.message); }
+    }, 2 * 60 * 60 * 1000);
 
-    }, 2 * 60 * 60 * 1000); // 2 hours
-
-    // ── SCHEDULE EMAIL #3 (24 hours later) ───────────────────────────────
+    // ── SCHEDULE EMAIL #3 (24 hours later) ───────────────────
     setTimeout(async () => {
-      const email3 = {
-        to: email,
-        from: 'darlene@maxsavequote.com',
-        replyTo: 'darlene@maxsavequote.com',
-        subject: `Your personalized MaxSave quote is ready, ${fname}`,
-        html: getEmailTemplate3(fname, lname)
-      };
-
       try {
-        await sgMail.send(email3);
+        await sgMail.send({ to: email, from: 'darlene@maxsavequote.com', replyTo: 'darlene@maxsavequote.com', subject: `Your personalized MaxSave quote is ready, ${fname}`, html: getEmailTemplate3(fname, lname) });
         console.log('Email #3 (24hr) sent successfully to:', email);
-      } catch (err) {
-        console.error('Email #3 error:', err.message);
-      }
+      } catch (err) { console.error('Email #3 error:', err.message); }
+    }, 24 * 60 * 60 * 1000);
 
-    }, 24 * 60 * 60 * 1000); // 24 hours
-
-    // ── SCHEDULE EMAIL #4 (3 days later) ─────────────────────────────────
+    // ── SCHEDULE EMAIL #4 (3 days later) ─────────────────────
     setTimeout(async () => {
-      const email4 = {
-        to: email,
-        from: 'darlene@maxsavequote.com',
-        replyTo: 'darlene@maxsavequote.com',
-        subject: `Final reminder: Your MaxSave quote expires in 48 hours`,
-        html: getEmailTemplate4(fname, lname)
-      };
-
       try {
-        await sgMail.send(email4);
+        await sgMail.send({ to: email, from: 'darlene@maxsavequote.com', replyTo: 'darlene@maxsavequote.com', subject: `Final reminder: Your MaxSave quote expires in 48 hours`, html: getEmailTemplate4(fname, lname) });
         console.log('Email #4 (3 days) sent successfully to:', email);
-      } catch (err) {
-        console.error('Email #4 error:', err.message);
-      }
+      } catch (err) { console.error('Email #4 error:', err.message); }
+    }, 3 * 24 * 60 * 60 * 1000);
 
-    }, 3 * 24 * 60 * 60 * 1000); // 3 days
-
-    // ── SENDGRID EMAIL (ORIGINAL INTERNAL NOTIFICATION) ──────────────────
+    // ── SENDGRID INTERNAL NOTIFICATION ───────────────────────
     const msg = {
       to: process.env.EMAIL_TO,
       from: 'leads@safeharborquote.com',
@@ -471,46 +508,20 @@ app.post('/submit-lead', async (req, res) => {
           <div style="background:white;padding:24px;border-radius:0 0 10px 10px;border:1px solid #e8eaf0;">
             <h2 style="color:#7cb342;font-size:18px;margin-bottom:16px;">📋 Lead Details</h2>
             <table style="width:100%;border-collapse:collapse;">
-              <tr style="background:#f6f7fa;">
-                <td style="padding:10px 14px;font-weight:700;color:#2e4a7c;width:40%;">Full Name</td>
-                <td style="padding:10px 14px;color:#2c3550;">${fname} ${lname}</td>
-              </tr>
-              <tr>
-                <td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Phone</td>
-                <td style="padding:10px 14px;color:#2c3550;">${phone}</td>
-              </tr>
-              <tr style="background:#f6f7fa;">
-                <td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Email</td>
-                <td style="padding:10px 14px;color:#2c3550;">${email}</td>
-              </tr>
-              <tr>
-                <td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Address</td>
-                <td style="padding:10px 14px;color:#2c3550;">${address || ''}, ${city || ''}, ${state || ''} ${zip || ''}</td>
-              </tr>
-              <tr style="background:#f6f7fa;">
-                <td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Date of Birth</td>
-                <td style="padding:10px 14px;color:#2c3550;">${dob || ''}</td>
-              </tr>
-              <tr>
-                <td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Age</td>
-                <td style="padding:10px 14px;color:#2c3550;">${age || ''}</td>
-              </tr>
-              <tr style="background:#f6f7fa;">
-                <td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Coverage Amount</td>
-                <td style="padding:10px 14px;color:#2c3550;">${coverage || ''}</td>
-              </tr>
-              <tr>
-                <td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Health Conditions</td>
-                <td style="padding:10px 14px;color:#2c3550;">${health || ''}</td>
-              </tr>
-              <tr style="background:#f6f7fa;">
-                <td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Smoking Status</td>
-                <td style="padding:10px 14px;color:#2c3550;">${smoker || ''}</td>
-              </tr>
+              <tr style="background:#f6f7fa;"><td style="padding:10px 14px;font-weight:700;color:#2e4a7c;width:40%;">Full Name</td><td style="padding:10px 14px;color:#2c3550;">${fname} ${lname}</td></tr>
+              <tr><td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Phone</td><td style="padding:10px 14px;color:#2c3550;">${phone}</td></tr>
+              <tr style="background:#f6f7fa;"><td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Email</td><td style="padding:10px 14px;color:#2c3550;">${email}</td></tr>
+              <tr><td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Address</td><td style="padding:10px 14px;color:#2c3550;">${address || ''}, ${city || ''}, ${state || ''} ${zip || ''}</td></tr>
+              <tr style="background:#f6f7fa;"><td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Date of Birth</td><td style="padding:10px 14px;color:#2c3550;">${dob || ''}</td></tr>
+              <tr><td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Age</td><td style="padding:10px 14px;color:#2c3550;">${age || ''}</td></tr>
+              <tr style="background:#f6f7fa;"><td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Coverage Amount</td><td style="padding:10px 14px;color:#2c3550;">${coverage || ''}</td></tr>
+              <tr><td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Health Conditions</td><td style="padding:10px 14px;color:#2c3550;">${health || ''}</td></tr>
+              <tr style="background:#f6f7fa;"><td style="padding:10px 14px;font-weight:700;color:#2e4a7c;">Smoking Status</td><td style="padding:10px 14px;color:#2c3550;">${smoker || ''}</td></tr>
             </table>
             <div style="margin-top:20px;padding:14px;background:#f0fff4;border-left:4px solid #7cb342;border-radius:6px;">
               <p style="margin:0;color:#7cb342;font-weight:700;">⚡ Phone number verified via SMS OTP</p>
               <p style="margin:8px 0 0;color:#7cb342;font-weight:700;">📧 Automated email follow-up sequence activated (4 emails over 3 days)</p>
+              <p style="margin:8px 0 0;color:#7cb342;font-weight:700;">📡 Meta CAPI Lead event fired (Event ID: ${capiEventId})</p>
             </div>
           </div>
           <p style="text-align:center;color:#8a93aa;font-size:12px;margin-top:16px;">MaxSave Insurance · maxsavequote.com</p>
@@ -519,9 +530,9 @@ app.post('/submit-lead', async (req, res) => {
     };
 
     await sgMail.send(msg);
-    console.log('SendGrid email sent successfully');
+    console.log('SendGrid internal notification sent');
 
-    // ── DYL CRM SUBMISSION (ORIGINAL WORKING CODE) ──────────────────────────────
+    // ── DYL CRM ───────────────────────────────────────────────
     const dylParams = new URLSearchParams();
     dylParams.append('d1-name', `${fname} ${lname}`);
     dylParams.append('d1-phone', phone);
